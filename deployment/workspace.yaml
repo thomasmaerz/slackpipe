@@ -1,0 +1,9 @@
+load_from:
+  - grpc_server:
+      host: code-server
+      port: 4000
+      location_name: slackpipe
+  - grpc_server:
+      host: slackquery-code-server
+      port: 4001
+      location_name: slackquery

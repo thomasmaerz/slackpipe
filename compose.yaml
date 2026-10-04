@@ -1,0 +1,293 @@
+x-slackpipe-service: &slackpipe-service
+  image: ${SLACKPIPE_IMAGE:-slackpipe:local}
+  build:
+    context: .
+    args:
+      SLACKDUMP_VERSION: ${SLACKDUMP_VERSION:-4.4.5}
+  restart: unless-stopped
+  environment:
+    TZ: America/Chicago
+    DAGSTER_POSTGRES_USER: ${DAGSTER_POSTGRES_USER:?set DAGSTER_POSTGRES_USER in deployment.env}
+    DAGSTER_POSTGRES_PASSWORD: ${DAGSTER_POSTGRES_PASSWORD:?set DAGSTER_POSTGRES_PASSWORD in deployment.env}
+    DAGSTER_POSTGRES_DB: ${DAGSTER_POSTGRES_DB:?set DAGSTER_POSTGRES_DB in deployment.env}
+    SLACKPIPE_WORKSPACE_FILE: /run/secrets/slackpipe/workspaces.env
+    SLACKPIPE_DUCKDB_PATH: /opt/slackpipe/data/slackpipe.duckdb
+    SLACKPIPE_SLACKDUMP_ROOT: /opt/slackpipe/slackdump
+    SLACKPIPE_SLACKDUMP_LOCK: /opt/slackpipe/data/slackdump.lock
+    SLACKPIPE_DUCKDB_LOCK: /opt/slackpipe/data/duckdb.lock
+    SLACKPIPE_PUSHGATEWAY_URL: http://pushgateway:9091
+    SLACKPIPE_ENABLE_DEFERRED_BACKFILLS: ${SLACKPIPE_ENABLE_DEFERRED_BACKFILLS:-false}
+    SLACKPIPE_SOLO_WORKSPACES: ${SLACKPIPE_SOLO_WORKSPACES:-}
+    SLACKPIPE_INCREMENTAL_STALE_AFTER: ${SLACKPIPE_INCREMENTAL_STALE_AFTER:-p90d}
+    SLACKPIPE_ATTACHMENT_SIZE_ACCEPT: ${SLACKPIPE_ATTACHMENT_SIZE_ACCEPT:-}
+    SLACKPIPE_ALLOW_LINEAGE_BOOTSTRAP: ${SLACKPIPE_ALLOW_LINEAGE_BOOTSTRAP:-false}
+    PYTHONPATH: /opt/slackpipe/src
+  volumes:
+    - dagster-data:/var/lib/dagster
+    - type: bind
+      source: ${SLACKPIPE_DATA_PATH:-/opt/slackpipe/data}
+      target: /opt/slackpipe/data
+      bind:
+        create_host_path: true
+    - type: bind
+      source: ${SLACKPIPE_SLACKDUMP_PATH:-./slackdump}
+      target: /opt/slackpipe/slackdump
+      bind:
+        create_host_path: false
+    - type: bind
+      source: ${SLACKPIPE_WORKSPACE_DIR_PATH:-/etc/slackpipe}
+      target: /run/secrets/slackpipe
+      read_only: true
+      bind:
+        create_host_path: false
+    - type: bind
+      source: ${SLACKPIPE_DEPLOYMENT_PATH:-./deployment}
+      target: /opt/slackpipe/deployment
+      read_only: true
+      bind:
+        create_host_path: false
+    - type: bind
+      source: ${SLACKPIPE_SOURCE_PATH:-./src}
+      target: /opt/slackpipe/src
+      read_only: true
+      bind:
+        create_host_path: false
+    - type: bind
+      source: ${SLACKPIPE_PROJECT_FILE_PATH:-./pyproject.toml}
+      target: /opt/slackpipe/pyproject.toml
+      read_only: true
+      bind:
+        create_host_path: false
+  depends_on:
+    postgres:
+      condition: service_healthy
+    pushgateway:
+      condition: service_started
+
+x-slackpipe-resource-limits: &slackpipe-resource-limits
+  deploy:
+    resources:
+      limits:
+        cpus: "2.0"
+        memory: 3G
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DAGSTER_POSTGRES_USER:?set DAGSTER_POSTGRES_USER in deployment.env}
+      POSTGRES_PASSWORD: ${DAGSTER_POSTGRES_PASSWORD:?set DAGSTER_POSTGRES_PASSWORD in deployment.env}
+      POSTGRES_DB: ${DAGSTER_POSTGRES_DB:?set DAGSTER_POSTGRES_DB in deployment.env}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  pushgateway:
+    image: prom/pushgateway:v1.11.1
+    restart: unless-stopped
+    command: ["--persistence.file=/data/pushgateway.data", "--persistence.interval=5m"]
+    environment:
+      TZ: America/Chicago
+    ports:
+      - "${SLACKPIPE_BIND_ADDRESS:-127.0.0.1}:${SLACKPIPE_PUSHGATEWAY_PORT:-9092}:9091"
+    volumes:
+      - pushgateway-data:/data
+    depends_on:
+      pushgateway-init:
+        condition: service_completed_successfully
+
+  pushgateway-init:
+    image: busybox:1.37.0
+    restart: "no"
+    user: "0:0"
+    command: ["sh", "-c", "chown -R 65534:65534 /data"]
+    environment:
+      TZ: America/Chicago
+    volumes:
+      - pushgateway-data:/data
+
+  code-server:
+    <<: [*slackpipe-service, *slackpipe-resource-limits]
+    # Run workers live here: 4 CPUs so concurrent slackdump resumes
+    # are not throttled (live-updated via `docker update`; kept in
+    # sync here so recreates don't revert to the shared 2.0 limit).
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 3G
+    command:
+      [
+        "dagster",
+        "code-server",
+        "start",
+        "-h",
+        "0.0.0.0",
+        "-p",
+        "4000",
+        "-m",
+        "slackpipe.definitions",
+        "-a",
+        "defs",
+      ]
+    healthcheck:
+      test: ["CMD", "dagster", "api", "grpc-health-check", "-h", "code-server", "-p", "4000"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+
+  slackquery-code-server:
+    image: ${SLACKQUERY_IMAGE:-slackquery:local}
+    build:
+      context: ${SLACKQUERY_BUILD_CONTEXT:-../slackquery}
+    restart: unless-stopped
+    init: true
+    command:
+      [
+        "dagster",
+        "code-server",
+        "start",
+        "-h",
+        "0.0.0.0",
+        "-p",
+        "4001",
+        "-m",
+        "slackquery.definitions",
+        "-a",
+        "definitions",
+      ]
+    env_file:
+      - ${SLACKQUERY_ENV_FILE:-../slackquery/.env}
+    environment:
+      TZ: America/Chicago
+      DAGSTER_POSTGRES_USER: ${DAGSTER_POSTGRES_USER:?set DAGSTER_POSTGRES_USER in deployment.env}
+      DAGSTER_POSTGRES_PASSWORD: ${DAGSTER_POSTGRES_PASSWORD:?set DAGSTER_POSTGRES_PASSWORD in deployment.env}
+      DAGSTER_POSTGRES_DB: ${DAGSTER_POSTGRES_DB:?set DAGSTER_POSTGRES_DB in deployment.env}
+      SLACKQUERY_CANONICAL_DB: /opt/slackpipe/data/slackpipe.duckdb
+      SLACKQUERY_STATE_DB: /opt/slackquery/state/slackquery.duckdb
+      SLACKQUERY_ARTIFACT_DIR: /opt/slackquery/artifacts
+      SLACKQUERY_CURRENT_LINK: /opt/slackquery/artifacts/current.duckdb
+      SLACKQUERY_DUCKDB_EXTENSION_DIR: /opt/slackquery/extensions
+      SLACKQUERY_ATTACHMENT_ROOT: /opt/slackpipe/slackdump
+    volumes:
+      - type: bind
+        source: ${SLACKPIPE_DATA_PATH:-/opt/slackpipe/data}/slackpipe.duckdb
+        target: /opt/slackpipe/data/slackpipe.duckdb
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${SLACKQUERY_STATE_PATH:-/opt/slackquery/state}
+        target: /opt/slackquery/state
+        bind:
+          create_host_path: true
+      - type: bind
+        source: ${SLACKQUERY_ARTIFACT_PATH:-/opt/slackquery/artifacts}
+        target: /opt/slackquery/artifacts
+        bind:
+          create_host_path: true
+      - type: bind
+        source: ${SLACKQUERY_EXTENSION_PATH:-/opt/slackquery/extensions}
+        target: /opt/slackquery/extensions
+        bind:
+          create_host_path: true
+      - type: bind
+        source: ${SLACKPIPE_SLACKDUMP_PATH:-./slackdump}
+        target: /opt/slackpipe/slackdump
+        read_only: true
+        bind:
+          create_host_path: false
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "dagster",
+          "api",
+          "grpc-health-check",
+          "-h",
+          "127.0.0.1",
+          "-p",
+          "4001",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 3G
+
+  webserver:
+    <<: [*slackpipe-service, *slackpipe-resource-limits]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      pushgateway:
+        condition: service_started
+      code-server:
+        condition: service_healthy
+      slackquery-code-server:
+        condition: service_healthy
+    command: ["dagster-webserver", "-h", "0.0.0.0", "-p", "3000", "-w", "/opt/slackpipe/deployment/workspace.yaml"]
+    ports:
+      - "${DAGSTER_BIND_ADDRESS:-127.0.0.1}:${DAGSTER_WEB_PORT:-3000}:3000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:3000/', timeout=2)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  daemon:
+    <<: [*slackpipe-service, *slackpipe-resource-limits]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      pushgateway:
+        condition: service_started
+      code-server:
+        condition: service_healthy
+      slackquery-code-server:
+        condition: service_healthy
+    command: ["dagster-daemon", "run", "-w", "/opt/slackpipe/deployment/workspace.yaml"]
+
+  reloader:
+    <<: [*slackpipe-service, *slackpipe-resource-limits]
+    depends_on:
+      webserver:
+        condition: service_healthy
+    environment:
+      TZ: America/Chicago
+      SLACKPIPE_WORKSPACE_FILE: /run/secrets/slackpipe/workspaces.env
+      SLACKPIPE_WEBSERVER_URL: http://webserver:3000
+      SLACKPIPE_LOCATION_NAME: slackpipe
+      SLACKPIPE_RELOAD_POLL_SECONDS: ${SLACKPIPE_RELOAD_POLL_SECONDS:-60}
+    volumes:
+      - type: bind
+        source: ${SLACKPIPE_WORKSPACE_DIR_PATH:-/etc/slackpipe}
+        target: /run/secrets/slackpipe
+        read_only: true
+        bind:
+          create_host_path: false
+    command: ["python", "/opt/slackpipe/deployment/reload_watch.py"]
+
+volumes:
+  dagster-data:
+  postgres-data:
+  pushgateway-data:
