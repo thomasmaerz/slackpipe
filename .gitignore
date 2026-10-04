@@ -1,0 +1,24 @@
+.env
+.env.*
+!.env.example
+deployment.env
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+data/
+slackdump
+*.duckdb
+*.duckdb.wal
+# Advisory flock files from progress/ API scripts (empty, never commit)
+progress/output/.*.lock
+# Regenerable progress snapshots (listings, inventories, probes); scripts stay tracked
+progress/output/*.json
+progress/output/*.txt
+LOCAL.md
+ai-state.md
+docs/local/
+.agents/
+skills-lock.json
+.opencode/skills/jobs-extract/

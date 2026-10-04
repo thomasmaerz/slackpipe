@@ -1,0 +1,16 @@
+.git
+.env
+.env.*
+!.env.example
+deployment.env
+.venv
+__pycache__
+*.py[cod]
+.pytest_cache
+.ruff_cache
+data
+slackdump
+*.duckdb
+*.duckdb.wal
+ai-state.md
+legacypattern.md
