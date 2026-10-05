@@ -20,5 +20,10 @@ LOCAL.md
 ai-state.md
 docs/local/
 .agents/
+.opencode/
+agents.md
+legacypattern.md
+plans/
+progress/
 skills-lock.json
 .opencode/skills/jobs-extract/
