@@ -20,7 +20,9 @@ concurrency:
     default_limit: 1
     granularity: op
   runs:
-    max_concurrent_runs: 2
+    # Global slots shared by all lanes. Bump when adding a lane so the
+    # per-lane limits below always leave every lane a free slot.
+    max_concurrent_runs: 4
     tag_concurrency_limits:
       - key: slackpipe/phase
         value: "raw"
@@ -30,6 +32,16 @@ concurrency:
         limit: 1
       - key: slackpipe/serial
         value: "true"
+        limit: 1
+      # Concurrency lanes: every job must carry a `lane` tag so one
+      # team's runs can never starve another team's queue slots, no
+      # matter how long a single run takes. Add a `lane: <team>` entry
+      # here for any future lane.
+      - key: lane
+        value: "slackpipe"
+        limit: 3
+      - key: lane
+        value: "slackquery"
         limit: 1
 
 run_monitoring:

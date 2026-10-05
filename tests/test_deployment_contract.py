@@ -58,6 +58,7 @@ def test_slackquery_code_server_compose_contract() -> None:
     ]
 
     mounts = {volume["target"]: volume for volume in service["volumes"]}
+    assert mounts["/var/lib/dagster"]["source"] == "dagster-data"
     assert mounts["/opt/slackpipe/data/slackpipe.duckdb"]["read_only"] is True
     assert "read_only" not in mounts["/opt/slackquery/state"]
     assert "read_only" not in mounts["/opt/slackquery/artifacts"]

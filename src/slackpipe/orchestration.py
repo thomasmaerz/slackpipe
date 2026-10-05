@@ -46,6 +46,11 @@ SERIAL_TAG = "slackpipe/serial"
 MODE_TAG = "slackpipe/mode"
 PHASE_TAG = "slackpipe/phase"
 WORKSPACE_TAG = "slackpipe/workspace"
+# Concurrency lane shared across code locations: every job must carry a
+# `lane` tag (see deployment/dagster.yaml) so one team's runs can never
+# starve another's out of the global run slots.
+LANE_TAG = "lane"
+LANE = "slackpipe"
 ROLLOUT_ID_TAG = "slackpipe/rollout_id"
 ATTACHMENT_ORDER_TAG = "slackpipe/attachment_order"
 ATTACHMENT_INDEX_TAG = "slackpipe/attachment_index"
@@ -1026,6 +1031,7 @@ def build_definitions(
         workspace_assets[slug] = generated_assets
 
     serial_tags = {SERIAL_TAG: "true"}
+    lane_tags = {LANE_TAG: LANE}
     jobs: list[Any] = []
     attachment_jobs: list[Any] = []
     extract_job = canonical_job = None
@@ -1059,7 +1065,7 @@ def build_definitions(
                 "chains size-ordered attachment backfills and a canonical "
                 "sweep after it)." + solo_note
             ),
-            tags={PHASE_TAG: "raw", MODE_TAG: "incremental"},
+            tags={LANE_TAG: LANE, PHASE_TAG: "raw", MODE_TAG: "incremental"},
             executor_def=multiprocess_executor.configured({"max_concurrent": 2}),
         )
         canonical_job = define_asset_job(
@@ -1069,7 +1075,7 @@ def build_definitions(
                 "Serialized canonicalization for all discovered workspaces."
                 + solo_note
             ),
-            tags={**serial_tags, PHASE_TAG: "canonical", MODE_TAG: "full"},
+            tags={LANE_TAG: LANE, **serial_tags, PHASE_TAG: "canonical", MODE_TAG: "full"},
         )
         jobs.extend([extract_job, canonical_job])
     schedules: list[ScheduleDefinition] = []
@@ -1081,7 +1087,7 @@ def build_definitions(
         # resume) can never hold the rollout queue. Step-level safety
         # still comes from the op-granularity pools plus the OS locks
         # (per-workspace Slackdump lock, global DuckDB lock).
-        job_tags = serial_tags if slug in rollout_slugs else {}
+        job_tags = {**lane_tags, **(serial_tags if slug in rollout_slugs else {})}
         job = define_asset_job(
             f"{slug}_ingest_once",
             selection=flow_selection,

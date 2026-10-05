@@ -199,6 +199,7 @@ def test_solo_workspace_jobs_skip_serial_tag_but_rollout_jobs_keep_it() -> None:
         "other_attachments_once",
     ):
         assert SERIAL_TAG not in jobs[name].tags
+        assert jobs[name].tags["lane"] == "slackpipe"
     for name in (
         "kmnr_ingest_once",
         "kmnr_incremental",
@@ -206,6 +207,7 @@ def test_solo_workspace_jobs_skip_serial_tag_but_rollout_jobs_keep_it() -> None:
         "kmnr_attachments_once",
     ):
         assert jobs[name].tags[SERIAL_TAG] == "true"
+        assert jobs[name].tags["lane"] == "slackpipe"
 
 
 def test_accepted_attachment_sizes_parsing() -> None:
@@ -262,8 +264,9 @@ def test_rollout_jobs_split_raw_and_canonical_phases() -> None:
     extract = loaded.resolve_job_def("all_workspaces_extract")
     canonical = loaded.resolve_job_def("all_workspaces_canonical")
 
-    assert extract.tags == {"slackpipe/phase": "raw", MODE_TAG: "incremental"}
+    assert extract.tags == {"lane": "slackpipe", "slackpipe/phase": "raw", MODE_TAG: "incremental"}
     assert canonical.tags == {
+        "lane": "slackpipe",
         SERIAL_TAG: "true",
         "slackpipe/phase": "canonical",
         MODE_TAG: "full",
@@ -793,11 +796,13 @@ def test_instance_config_serializes_and_cleans_stale_slots() -> None:
 
     assert custom_instance_class is None
     runs = config["concurrency"]["runs"]
-    assert runs["max_concurrent_runs"] == 2
+    assert runs["max_concurrent_runs"] == 4
     assert runs["tag_concurrency_limits"] == [
         {"key": "slackpipe/phase", "value": "raw", "limit": 2},
         {"key": "slackpipe/phase", "value": "canonical", "limit": 1},
         {"key": SERIAL_TAG, "value": "true", "limit": 1},
+        {"key": "lane", "value": "slackpipe", "limit": 3},
+        {"key": "lane", "value": "slackquery", "limit": 1},
     ]
     assert config["concurrency"]["pools"] == {
         "default_limit": 1,
