@@ -177,6 +177,7 @@ services:
       SLACKQUERY_DUCKDB_EXTENSION_DIR: /opt/slackquery/extensions
       SLACKQUERY_ATTACHMENT_ROOT: /opt/slackpipe/slackdump
     volumes:
+      - dagster-data:/var/lib/dagster
       - type: bind
         source: ${SLACKPIPE_DATA_PATH:-/opt/slackpipe/data}/slackpipe.duckdb
         target: /opt/slackpipe/data/slackpipe.duckdb
