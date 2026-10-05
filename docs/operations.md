@@ -102,3 +102,16 @@ before re-enabling schedules.
 location and repository. Mount the canonical DuckDB and attachment tree into its
 writer read-only. Slackquery's state, artifacts, and embedding service remain
 outside Slackpipe ownership.
+
+Cross-location orchestration contract:
+
+- Every job carries a `lane` tag (`slackpipe` or `slackquery`).
+  `deployment/dagster.yaml` caps each lane (`slackpipe: 3`, `slackquery: 1`)
+  under the global run limit so one team's long runs can never starve the
+  other's queue. Any future lane needs its own tag value plus a limit entry.
+- Slackquery reconciles itself: its `reconcile_on_ingestion` sensor launches
+  after successful Slackpipe ingestion (initial, incremental, or full
+  canonical sweep). There is no Slackpipe-side trigger to maintain.
+- The Slackquery code server needs the shared `dagster-data` volume mounted
+  at `/var/lib/dagster`; otherwise its steps cannot capture stdout/stderr
+  compute logs because its root filesystem is read-only.

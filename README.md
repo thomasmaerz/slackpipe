@@ -128,8 +128,8 @@ integrity. The definitions also expose:
 - per-workspace initial and incremental jobs;
 - all-workspaces extract and canonical rollout jobs;
 - `slackpipe_new_workspace_sensor` for newly discovered workspaces;
-- `slackpipe_rollout_coordinator` for serialized extract/attachment/canonical
-  progression;
+- `slackpipe_attachments_and_duckdb_coordinator` for serialized
+  extract/attachment/canonical progression;
 - `slackpipe_run_failure_metrics` for failure observability;
 - stopped-by-default schedules so activation remains an operator decision.
 
