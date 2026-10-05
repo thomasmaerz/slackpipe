@@ -273,7 +273,7 @@ def test_rollout_jobs_split_raw_and_canonical_phases() -> None:
     }
 
 
-def test_nightly_rollout_schedule_targets_extract_and_starts_stopped() -> None:
+def test_nightly_slackdump_incremental_targets_extract_and_starts_stopped() -> None:
     loaded = build_definitions(
         environ={
             "SLACKPIPE_ENABLE_DEFERRED_BACKFILLS": "true",
@@ -286,8 +286,8 @@ def test_nightly_rollout_schedule_targets_extract_and_starts_stopped() -> None:
         for schedule in loaded.get_repository_def().schedule_defs
     }
 
-    assert set(schedules) == {"nightly_rollout_schedule"}
-    nightly = schedules["nightly_rollout_schedule"]
+    assert set(schedules) == {"nightly_slackdump_incremental"}
+    nightly = schedules["nightly_slackdump_incremental"]
     assert nightly.job_name == "all_workspaces_extract"
     assert nightly.cron_schedule == "0 1 * * *"
     assert nightly.default_status is DefaultScheduleStatus.STOPPED
@@ -434,7 +434,7 @@ def test_solo_workspaces_parses_comma_separated_values() -> None:
     assert SlackpipeRuntimeResource.from_environ({}).solo_workspace_slugs == ()
 
 
-def test_nightly_rollout_is_the_only_schedule() -> None:
+def test_nightly_slackdump_incremental_is_the_only_schedule() -> None:
     # Per-workspace incremental + full-sweep schedules were deleted: the
     # nightly rollout is the single recurring trigger.
     loaded = build_definitions(
@@ -452,7 +452,7 @@ def test_nightly_rollout_is_the_only_schedule() -> None:
     }
 
     assert statuses == {
-        "nightly_rollout_schedule": DefaultScheduleStatus.STOPPED,
+        "nightly_slackdump_incremental": DefaultScheduleStatus.STOPPED,
     }
 
 
@@ -473,7 +473,7 @@ def test_sensors_use_two_minute_minimum_interval() -> None:
 
     assert intervals == {
         "slackpipe_run_failure_metrics": 120,
-        "slackpipe_rollout_coordinator": 120,
+        "slackpipe_attachments_and_duckdb_coordinator": 120,
         "slackpipe_new_workspace_sensor": 300,
     }
 
@@ -502,7 +502,7 @@ def _successful_run_context(
     )
     assert result.success
     return build_run_status_sensor_context(
-        sensor_name="slackpipe_rollout_coordinator",
+        sensor_name="slackpipe_attachments_and_duckdb_coordinator",
         dagster_event=next(event for event in result.all_events if event.is_job_success),
         dagster_instance=instance,
         dagster_run=result.dagster_run,
@@ -515,7 +515,7 @@ def _rollout_sensor(loaded: Definitions):
     return next(
         sensor
         for sensor in loaded.sensors
-        if sensor.name == "slackpipe_rollout_coordinator"
+        if sensor.name == "slackpipe_attachments_and_duckdb_coordinator"
     )
 
 

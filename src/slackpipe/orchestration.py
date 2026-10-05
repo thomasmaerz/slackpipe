@@ -518,6 +518,15 @@ def _run_id(context: Any) -> str:
     return context.run.run_id
 
 
+def _tee_status(context: Any) -> Any:
+    """Emit progress to both the event log and the captured stdout tab."""
+    def emit(message: str) -> None:
+        context.log.info(message)
+        print(message, flush=True)
+
+    return emit
+
+
 def _workspace_definitions(
     workspace: WorkspaceDescriptor,
     helpers: OrchestrationHelpers,
@@ -550,7 +559,7 @@ def _workspace_definitions(
                 mode=_mode(context),
                 run_id=_run_id(context),
                 runtime=slackpipe_runtime,
-                status=context.log.info,
+                status=_tee_status(context),
             )
         except (
             SlackdumpAuthenticationError,
@@ -595,7 +604,7 @@ def _workspace_definitions(
             mode=_mode(context),
             run_id=_run_id(context),
             runtime=slackpipe_runtime,
-            status=context.log.info,
+            status=_tee_status(context),
         )
         return MaterializeResult(
             value=result,
@@ -620,12 +629,15 @@ def _workspace_definitions(
     def attachments(
         context, slackpipe_runtime: SlackpipeRuntimeResource
     ) -> MaterializeResult[Any]:
+        emit = _tee_status(context)
+        emit(f"starting attachment backfill for {workspace.workspace_id}")
         result = helpers.backfill_attachments(
             workspace=workspace,
             warehouse=None,
             run_id=_run_id(context),
             runtime=slackpipe_runtime,
         )
+        emit(f"finished attachment backfill for {workspace.workspace_id}")
         return MaterializeResult(
             value=result,
             metadata={
@@ -823,11 +835,13 @@ def _new_workspace_sensor(descriptors, runtime, *, default_status, jobs=()):
                 runtime.duckdb_path, candidate.workspace_id
             ):
                 continue
+            context.log.info(f"launching initial ingest for new workspace {slug}")
             return RunRequest(
                 run_key=f"auto-initial-{slug}",
                 job_name=_initial_ingest_job_name(slug),
                 tags={WORKSPACE_TAG: slug, MODE_TAG: "initial"},
             )
+        context.log.info("no new workspaces without an initial ingest, skipping")
         return None
 
     return new_workspace_sensor
@@ -918,10 +932,10 @@ def _rollout_sensor(
 
     @run_status_sensor(
         run_status=DagsterRunStatus.SUCCESS,
-        name="slackpipe_rollout_coordinator",
+        name="slackpipe_attachments_and_duckdb_coordinator",
         description=(
             "Advances a successful extraction through size-ordered attachment "
-            "backfills, then serialized canonicalization."
+            "backfills, then serialized canonicalization into DuckDB."
         ),
         monitored_jobs=monitored,
         request_jobs=requested,
@@ -931,13 +945,18 @@ def _rollout_sensor(
         # ~75% versus the 30s default.
         minimum_interval_seconds=120,
     )
-    def rollout_coordinator(context, slackpipe_runtime: SlackpipeRuntimeResource):
+    def attachments_and_duckdb_coordinator(context, slackpipe_runtime: SlackpipeRuntimeResource):
         run = context.dagster_run
         rollout_id = run.tags.get(ROLLOUT_ID_TAG, run.run_id)
         if run.job_name == extract_job.name:
             order = _attachment_order(slackpipe_runtime, rollout_slugs)
+            context.log.info(
+                f"extraction {run.run_id[:8]} succeeded, attachment order: {list(order)}"
+            )
             if not order:
+                context.log.info("no workspaces with archives yet, rollout paused")
                 return None
+            context.log.info(f"launching attachment backfill for {order[0]}")
             return RunRequest(
                 run_key=f"{rollout_id}:attachments:0",
                 job_name=f"{_slug(order[0])}_attachments_once",
@@ -948,13 +967,23 @@ def _rollout_sensor(
                 },
             )
         if run.job_name == canonical_job.name:
+            context.log.info(
+                f"canonical sweep {run.run_id[:8]} succeeded, rollout {rollout_id[:8]} complete"
+            )
             return None
         if ATTACHMENT_ORDER_TAG not in run.tags:
             # Manual/uncoordinated attachment run: never advance the rollout.
+            context.log.info(
+                f"ignoring uncoordinated attachment run {run.run_id[:8]} "
+                f"({run.job_name})"
+            )
             return None
         order = tuple(item for item in run.tags.get(ATTACHMENT_ORDER_TAG, "").split(",") if item)
         index = int(run.tags.get(ATTACHMENT_INDEX_TAG, "-1")) + 1
         if order and index < len(order):
+            context.log.info(
+                f"attachment {run.run_id[:8]} succeeded, launching next: {order[index]}"
+            )
             return RunRequest(
                 run_key=f"{rollout_id}:attachments:{index}",
                 job_name=f"{_slug(order[index])}_attachments_once",
@@ -964,13 +993,14 @@ def _rollout_sensor(
                     ATTACHMENT_INDEX_TAG: str(index),
                 },
             )
+        context.log.info(f"attachments complete, launching canonical sweep")
         return RunRequest(
             run_key=f"{rollout_id}:canonical",
             job_name=canonical_job.name,
             tags={ROLLOUT_ID_TAG: rollout_id},
         )
 
-    return rollout_coordinator
+    return attachments_and_duckdb_coordinator
 
 
 def _failure_sensor(default_status: DefaultSensorStatus):
@@ -984,7 +1014,12 @@ def _failure_sensor(default_status: DefaultSensorStatus):
         context, slackpipe_runtime: SlackpipeRuntimeResource
     ) -> None:
         if not slackpipe_runtime.pushgateway_url:
+            context.log.info("no pushgateway configured, skipping failure metrics")
             return
+        context.log.info(
+            f"publishing failure metrics for {context.dagster_run.job_name} "
+            f"({context.dagster_run.run_id[:8]})"
+        )
         observability = importlib.import_module("slackpipe.observability")
         completed_at = time.time()
         metrics = observability.PipelineMetrics(
@@ -1167,7 +1202,7 @@ def build_definitions(
         # workspaces stay manual.
         schedules.append(
             ScheduleDefinition(
-                name="nightly_rollout_schedule",
+                name="nightly_slackdump_incremental",
                 cron_schedule="0 1 * * *",
                 job=extract_job,
                 default_status=DefaultScheduleStatus.STOPPED,
