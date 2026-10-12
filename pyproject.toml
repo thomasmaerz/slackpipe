@@ -18,7 +18,7 @@ dev = [
 [project.optional-dependencies]
 deployment = [
     "dagster-postgres==0.29.20",
-    "psycopg[binary]>=3.1,<4",  # v3 driver: SQLAlchemy 2.x defaults postgresql:// to psycopg, not psycopg2
+    "psycopg2-binary>=2.9,<3",  # v2 driver: SA2 defaults postgresql:// to psycopg v3, which fails under uvicorn; dagster.yaml pins +psycopg2
     "dagster-webserver==1.13.20",
 ]
 dev = [

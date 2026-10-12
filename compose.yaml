@@ -9,6 +9,7 @@ x-slackpipe-service: &slackpipe-service
   dns_search: .
   environment:
     TZ: America/Chicago
+    POSTGRES_URL: postgresql+psycopg2://${DAGSTER_POSTGRES_USER}:${DAGSTER_POSTGRES_PASSWORD}@postgres:5432/${DAGSTER_POSTGRES_DB}
     DAGSTER_POSTGRES_USER: ${DAGSTER_POSTGRES_USER:?set DAGSTER_POSTGRES_USER in deployment.env}
     DAGSTER_POSTGRES_PASSWORD: ${DAGSTER_POSTGRES_PASSWORD:?set DAGSTER_POSTGRES_PASSWORD in deployment.env}
     DAGSTER_POSTGRES_DB: ${DAGSTER_POSTGRES_DB:?set DAGSTER_POSTGRES_DB in deployment.env}

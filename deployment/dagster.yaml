@@ -1,14 +1,7 @@
 storage:
   postgres:
-    postgres_db:
-      hostname: postgres
-      username:
-        env: DAGSTER_POSTGRES_USER
-      password:
-        env: DAGSTER_POSTGRES_PASSWORD
-      db_name:
-        env: DAGSTER_POSTGRES_DB
-      port: 5432
+    postgres_url:
+      env: POSTGRES_URL
 
 run_coordinator:
   module: dagster.core.run_coordinator
