@@ -5,6 +5,8 @@ x-slackpipe-service: &slackpipe-service
     args:
       SLACKDUMP_VERSION: ${SLACKDUMP_VERSION:-4.4.5}
   restart: unless-stopped
+  # No search lan inheritance: bare names must resolve via embedded DNS only.
+  dns_search: .
   environment:
     TZ: America/Chicago
     DAGSTER_POSTGRES_USER: ${DAGSTER_POSTGRES_USER:?set DAGSTER_POSTGRES_USER in deployment.env}
@@ -149,6 +151,7 @@ services:
       context: ${SLACKQUERY_BUILD_CONTEXT:-../slackquery}
     restart: unless-stopped
     init: true
+    dns_search: .
     command:
       [
         "dagster",
