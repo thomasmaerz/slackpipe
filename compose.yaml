@@ -17,6 +17,7 @@ x-slackpipe-service: &slackpipe-service
     SLACKPIPE_DUCKDB_PATH: /opt/slackpipe/data/slackpipe.duckdb
     SLACKPIPE_SLACKDUMP_ROOT: /opt/slackpipe/slackdump
     SLACKPIPE_SLACKDUMP_LOCK: /opt/slackpipe/data/slackdump.lock
+    SLACKPIPE_SLACKDUMP_API_CONFIG: /opt/slackpipe/deployment/slackdump-api.toml
     SLACKPIPE_DUCKDB_LOCK: /opt/slackpipe/data/duckdb.lock
     SLACKPIPE_PUSHGATEWAY_URL: http://pushgateway:9091
     SLACKPIPE_ENABLE_DEFERRED_BACKFILLS: ${SLACKPIPE_ENABLE_DEFERRED_BACKFILLS:-false}
@@ -206,7 +207,7 @@ services:
         bind:
           create_host_path: true
       - type: bind
-        source: ${SLACKPIPE_SLACKDUMP_PATH:-./slackdump}
+        source: ${SLACKQUERY_ATTACHMENT_ROOT_HOST:-${SLACKPIPE_SLACKDUMP_PATH:-./slackdump}}
         target: /opt/slackpipe/slackdump
         read_only: true
         bind:
