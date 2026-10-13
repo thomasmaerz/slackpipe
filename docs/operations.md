@@ -103,6 +103,12 @@ location and repository. Mount the canonical DuckDB and attachment tree into its
 writer read-only. Slackquery's state, artifacts, and embedding service remain
 outside Slackpipe ownership.
 
+Compose defaults the Slackquery writer's attachment mount to
+`SLACKPIPE_SLACKDUMP_PATH`. Set `SLACKQUERY_ATTACHMENT_ROOT_HOST` only when the
+writer intentionally needs a different host path. The mounted tree must contain
+the workspace directories and `local_object_path` values recorded in canonical
+`files`; Slackquery Gold validation rejects unresolved configured paths.
+
 Cross-location orchestration contract:
 
 - Every job carries a `lane` tag (`slackpipe` or `slackquery`).
